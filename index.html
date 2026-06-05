@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="screen-orientation" content="any">
+<title>Sky Runner — Бесконечный полёт</title>
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{overflow:hidden;font-family:'Segoe UI',Arial,sans-serif;background:#000}
+canvas{display:block}
+
+#hud{position:fixed;top:0;left:0;width:100%;padding:12px 20px;display:flex;justify-content:space-between;align-items:flex-start;pointer-events:none;z-index:10}
+#hud>div{pointer-events:auto}
+.hud-left,.hud-right{display:flex;flex-direction:column;gap:6px}
+.hud-center{text-align:center}
+.hud-text{color:#fff;font-size:16px;font-weight:600;text-shadow:0 0 8px rgba(0,0,0,.8)}
+.hud-big{font-size:32px;font-variant-numeric:tabular-nums}
+.theme-light .hud-text{color:#222;text-shadow:0 0 8px rgba(255,255,255,.8)}
+
+/* SVG hearts */
+.lives-row{display:flex;gap:4px;align-items:center}
+.heart{width:26px;height:26px}
+.heart-full{fill:#e74c3c;stroke:#a93226;stroke-width:1.5}
+.heart-empty{fill:#333;stroke:#555;stroke-width:1.5}
+.theme-light .heart-empty{fill:#ccc;stroke:#999}
+
+#pauseOverlay,#startOverlay,#gameOverOverlay,#settingsOverlay{
+  position:fixed;top:0;left:0;width:100%;height:100%;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  z-index:20;pointer-events:auto
+}
+#pauseOverlay,#settingsOverlay{background:rgba(0,0,0,.65)}
+#startOverlay{background:rgba(0,0,0,.88)}
+#gameOverOverlay{background:rgba(130,0,0,.72)}
+.overlay-title{color:#fff;font-size:48px;font-weight:700;margin-bottom:10px;text-shadow:0 0 30px rgba(74,144,217,.6)}
+.overlay-sub{color:#ccc;font-size:18px;margin-bottom:24px;text-align:center;max-width:500px;line-height:1.5}
+.overlay-btn{
+  background:linear-gradient(135deg,#4a90d9,#357abd);color:#fff;
+  border:none;padding:14px 40px;font-size:18px;border-radius:8px;
+  cursor:pointer;margin:6px;transition:transform .15s,box-shadow .15s;font-weight:600
+}
+.overlay-btn:hover{transform:scale(1.05);box-shadow:0 4px 20px rgba(74,144,217,.5)}
+.overlay-btn.secondary{background:linear-gradient(135deg,#555,#444)}
+.overlay-btn.danger{background:linear-gradient(135deg,#d94a4a,#bd3535)}
+.overlay-btn.small{padding:8px 16px;font-size:14px}
+
+
+
+.settings-panel{background:rgba(30,30,30,.95);border-radius:16px;padding:30px;min-width:340px;max-width:90vw;color:#fff}
+.settings-panel h2{margin-bottom:20px;font-size:24px}
+.setting-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;font-size:15px;gap:12px}
+.setting-row input[type=range]{width:120px;cursor:pointer}
+
+.hidden{display:none!important}
+
+/* Touch zones — invisible left/right halves */
+#touchZones{position:fixed;top:0;left:0;width:100%;height:100%;display:flex;z-index:4;pointer-events:none}
+.touch-zone{flex:1;pointer-events:auto;-webkit-tap-highlight-color:transparent}
+@media(min-width:769px){#touchZones{display:none}}
+
+.slow-effect{position:fixed;top:0;left:0;width:100%;height:100%;border:4px solid rgba(0,150,255,.5);pointer-events:none;z-index:5;box-shadow:inset 0 0 60px rgba(0,150,255,.2);animation:slowPulse 1s infinite}
+@keyframes slowPulse{0%,100%{border-color:rgba(0,150,255,.3)}50%{border-color:rgba(0,150,255,.6)}}
+
+
+
+.damage-flash{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(255,0,0,.4);pointer-events:none;z-index:5;animation:flashOut .4s ease-out forwards}
+@keyframes flashOut{0%{opacity:1}100%{opacity:0}}
+
+.switch{position:relative;width:44px;height:24px}
+.switch input{opacity:0;width:0;height:0}
+.slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#555;border-radius:24px;transition:.3s}
+.slider:before{content:"";position:absolute;height:18px;width:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.3s}
+.switch input:checked+.slider{background:#4a90d9}
+.switch input:checked+.slider:before{transform:translateX(20px)}
+</style>
+</head>
+<body>
+
+<div id="hud" class="hidden">
+  <div class="hud-left">
+    <div class="lives-row" id="livesDisplay"></div>
+    <div class="hud-text" id="levelDisplay">Уровень 1</div>
+    <div class="hud-text" id="speedDisplay">Скорость: 1.0x</div>
+  </div>
+  <div class="hud-center">
+    <div class="hud-text hud-big" id="scoreDisplay">0</div>
+    <div class="hud-text" id="bestDisplay">Рекорд: 0</div>
+  </div>
+  <div class="hud-right">
+    <button class="overlay-btn small secondary" onclick="openSettings()">⚙ M</button>
+  </div>
+</div>
+
+<div id="startOverlay">
+  <div class="overlay-title">✈ SKY RUNNER</div>
+  <div class="overlay-sub">Уклоняйся от препятствий и лети как можно дальше!<br><br>
+    <span style="font-size:14px;color:#999">
+      ← → / A D — движение<br>
+      Пробел (удерж.) — ускорение<br>
+      M — меню&nbsp;&nbsp;|&nbsp;&nbsp;P — пауза<br><br>
+      ❤️ Жизнь&nbsp;&nbsp;🔵 Замедление&nbsp;&nbsp;🟠 Трамплин
+    </span>
+  </div>
+  <button class="overlay-btn" onclick="startGame()">▶ Играть</button>
+  <button class="overlay-btn secondary" onclick="openSettings()">⚙ Настройки</button>
+</div>
+
+<div id="pauseOverlay" class="hidden">
+  <div class="overlay-title">⏸ ПАУЗА</div>
+  <button class="overlay-btn" onclick="togglePause()">▶ Продолжить</button>
+  <button class="overlay-btn secondary" onclick="openSettings()">⚙ Настройки</button>
+  <button class="overlay-btn danger" onclick="restartGame()">↺ Заново</button>
+</div>
+
+<div id="gameOverOverlay" class="hidden">
+  <div class="overlay-title">💥 GAME OVER</div>
+  <div class="overlay-sub" id="finalScore">Счёт: 0</div>
+  <div class="overlay-sub" style="font-size:14px;color:#ffa">Пробел — играть снова</div>
+  <button class="overlay-btn" onclick="restartGame()">↺ Играть снова</button>
+</div>
+
+<!-- level transition: empty field, no overlay -->
+
+<div id="settingsOverlay" class="hidden">
+  <div class="settings-panel">
+    <h2>⚙ Настройки</h2>
+    <div class="setting-row">
+      <span>Тема</span>
+      <label class="switch">
+        <input type="checkbox" id="themeToggle" onchange="toggleTheme()">
+        <span class="slider"></span>
+      </label>
+    </div>
+    <div class="setting-row">
+      <span>Звук</span>
+      <label class="switch">
+        <input type="checkbox" id="soundToggle" checked onchange="toggleSound()">
+        <span class="slider"></span>
+      </label>
+    </div>
+    <div class="setting-row">
+      <span>Дальность видимости</span>
+      <input type="range" id="fogRange" min="40" max="160" value="80" oninput="updateFog()">
+      <span id="fogValue" style="min-width:30px;text-align:right">80</span>
+    </div>
+    <div class="setting-row">
+      <span>Начальная скорость</span>
+      <input type="range" id="startSpeedRange" min="15" max="60" value="28" oninput="updateStartSpeed()">
+      <span id="startSpeedValue" style="min-width:30px;text-align:right">28</span>
+    </div>
+    <div class="setting-row">
+      <span>Размер самолётика</span>
+      <input type="range" id="planeScaleRange" min="30" max="150" value="83" oninput="updatePlaneScale()">
+      <span id="planeScaleValue" style="min-width:38px;text-align:right">83%</span>
+    </div>
+    <div class="setting-row">
+      <span>Длина уровня (сек)</span>
+      <input type="range" id="levelTimeRange" min="15" max="120" value="40" oninput="updateLevelTime()">
+      <span id="levelTimeValue" style="min-width:38px;text-align:right">40с</span>
+    </div>
+    <button class="overlay-btn" onclick="closeSettings()" style="width:100%;margin-top:10px">✓ Закрыть</button>
+  </div>
+</div>
+
+<div id="touchZones">
+  <div class="touch-zone" id="zoneLeft"></div>
+  <div class="touch-zone" id="zoneRight"></div>
+</div>
+
+<div id="effects"></div>
+
+<script>
+const HEART_SVG = '<svg class="heart" viewBox="0 0 24 24"><path class="CLS" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>';
+
+const CFG = {
+  lanes:7, laneW:3.2, baseSpeed:28, speedInc:5,
+  boostMult:1.7,
+  levelTime:40, // seconds per level
+  chunkLen:18, maxObsPerChunk:2, // obstacles per ROW (kept low, more rows instead)
+  fogNear:20, fogFar:80,
+  groundW:100, groundSegLen:200,
+  healthChance:0.05,
+  slowChance:0.03, slowDuration:5, slowFactor:0.9, slowMinLevel:5,
+  jumpVel:14, gravity:-20,
+  moveSpd:20, maxTilt:0.5, invincTime:1.8,
+  planeZ:3, planeBaseY:2, planeScale:0.83,
+};
+
+// Level colors for obstacles
+const LEVEL_COLORS = [
+  0xcc2222, 0xe84393, 0x6c5ce7, 0x00b894, 0xfdcb6e,
+  0xe17055, 0x0984e3, 0xd63031, 0x00cec9, 0x636e72,
+  0xf39c12, 0x8e44ad, 0x2ecc71, 0xe74c3c, 0x3498db,
+];
+function getLevelColor(lvl){ return LEVEL_COLORS[(lvl-1)%LEVEL_COLORS.length]; }
+
+let S = {};
+function freshState(){
+  return {
+    running:false, paused:false, gameOver:false,
+    score:0, best:parseInt(localStorage.getItem('sr_best')||'0'),
+    lives:3, level:1,
+    dist:0, lvlTime:0,
+    inTrans:false, transT:0,
+    speed:CFG.baseSpeed,
+    slowT:0, invT:0, boosting:false,
+    px:0, py:CFG.planeBaseY, tilt:0, vy:0, jumping:false,
+    worldZ:0,
+  };
+}
+S=freshState();
+
+// ── RENDERER ──
+const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+document.body.appendChild(renderer.domElement);
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x000000);
+scene.fog=new THREE.Fog(0x000000,CFG.fogNear,CFG.fogFar);
+
+const camera=new THREE.PerspectiveCamera(60,innerWidth/innerHeight,0.5,300);
+camera.position.set(0,11,18);
+camera.lookAt(0,0,-20);
+
+scene.add(new THREE.AmbientLight(0x8888aa,0.55));
+const dLight=new THREE.DirectionalLight(0xffffff,0.85);
+dLight.position.set(5,20,10);
+scene.add(dLight);
+
+// ── MATERIALS ──
+const M={
+  ground:new THREE.MeshLambertMaterial({color:0x141428}),
+  groundLight:new THREE.MeshLambertMaterial({color:0xbcc8d8}),
+  line:new THREE.MeshBasicMaterial({color:0x252540}),
+  lineLight:new THREE.MeshBasicMaterial({color:0x8899aa}),
+  obs:new THREE.MeshLambertMaterial({color:0xcc2222}),
+  ramp:new THREE.MeshLambertMaterial({color:0xe67e22}),
+  rampStripe:new THREE.MeshBasicMaterial({color:0xf5c842}),
+  health:new THREE.MeshLambertMaterial({color:0x2ecc71}),
+  slow:new THREE.MeshLambertMaterial({color:0x3498db}),
+  paper:new THREE.MeshLambertMaterial({color:0xffffff,side:THREE.DoubleSide}),
+  paperFold:new THREE.MeshLambertMaterial({color:0xebebeb,side:THREE.DoubleSide}),
+  outline:new THREE.LineBasicMaterial({color:0x111111,linewidth:2}),
+};
+
+const G={
+  obs:new THREE.BoxGeometry(2.4,2.4,2.4),
+  slow:new THREE.IcosahedronGeometry(0.55),
+};
+
+// Heart shape for health pickup
+function makeHeartGeo(){
+  const shape=new THREE.Shape();
+  const s=0.06;
+  shape.moveTo(0*s,5*s);
+  shape.bezierCurveTo(0*s,5*s,-1*s,9*s,-5*s,9*s);
+  shape.bezierCurveTo(-10*s,9*s,-10*s,2*s,-10*s,2*s);
+  shape.bezierCurveTo(-10*s,-2*s,-7*s,-5.5*s,0*s,-10*s);
+  shape.bezierCurveTo(7*s,-5.5*s,10*s,-2*s,10*s,2*s);
+  shape.bezierCurveTo(10*s,2*s,10*s,9*s,5*s,9*s);
+  shape.bezierCurveTo(1*s,9*s,0*s,5*s,0*s,5*s);
+  const extrudeSettings={depth:0.15,bevelEnabled:true,bevelThickness:0.05,bevelSize:0.05,bevelSegments:2,steps:1};
+  return new THREE.ExtrudeGeometry(shape,extrudeSettings);
+}
+const heartGeo=makeHeartGeo();
+
+// ── GROUND ──
+const gndGeo=new THREE.PlaneGeometry(CFG.groundW,CFG.groundSegLen);
+const grounds=[];
+const groundGrp=new THREE.Group();
+scene.add(groundGrp);
+for(let i=0;i<3;i++){
+  const g=new THREE.Mesh(gndGeo,M.ground);
+  g.rotation.x=-Math.PI/2;
+  g.position.set(0,0,-CFG.groundSegLen*i+CFG.groundSegLen*0.5);
+  groundGrp.add(g);grounds.push(g);
+}
+const linesGrp=new THREE.Group();
+scene.add(linesGrp);
+const lineSegs=[];
+for(let s=0;s<3;s++)for(let l=-3;l<=3;l++){
+  const lg=new THREE.PlaneGeometry(0.06,CFG.groundSegLen);
+  const lm=new THREE.Mesh(lg,M.line);
+  lm.rotation.x=-Math.PI/2;
+  lm.position.set(l*CFG.laneW,0.02,-CFG.groundSegLen*s+CFG.groundSegLen*0.5);
+  linesGrp.add(lm);lineSegs.push(lm);
+}
+
+// ── PAPER AIRPLANE ──
+const planeGrp=new THREE.Group();
+const planeInner=new THREE.Group();
+planeInner.scale.setScalar(CFG.planeScale);
+planeGrp.add(planeInner);
+scene.add(planeGrp);
+
+function makeTriMesh(pts,mat){
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.Float32BufferAttribute(pts.flat(),3));
+  geo.setIndex([0,1,2]);geo.computeVertexNormals();
+  return new THREE.Mesh(geo,mat);
+}
+
+const nose=[0,0.06,-1.1],tailC=[0,0.0,0.7];
+const leftTip=[-0.85,-0.02,0.5],rightTip=[0.85,-0.02,0.5];
+planeInner.add(makeTriMesh([nose,leftTip,tailC],M.paper));
+planeInner.add(makeTriMesh([nose,tailC,rightTip],M.paperFold));
+
+const olPts=[nose,leftTip,leftTip,tailC,tailC,rightTip,rightTip,nose,nose,tailC];
+const olGeo=new THREE.BufferGeometry();
+olGeo.setAttribute('position',new THREE.Float32BufferAttribute(olPts.flat(),3));
+planeInner.add(new THREE.LineSegments(olGeo,M.outline));
+
+const fGeo=new THREE.BufferGeometry();
+fGeo.setAttribute('position',new THREE.Float32BufferAttribute([0,0.07,-1.05,0,0.03,0.65],3));
+planeInner.add(new THREE.Line(fGeo,M.outline));
+
+planeGrp.position.set(0,CFG.planeBaseY,CFG.planeZ);
+
+// ── OBJECT POOL ──
+const pools={obs:[],ramp:[],health:[],slow:[]};
+const active={obs:[],ramp:[],health:[],slow:[]};
+
+function makeRampMesh(){
+  const grp=new THREE.Group();
+  grp.add(new THREE.Mesh(new THREE.BoxGeometry(3.2,0.3,4.0),M.ramp));
+  for(let i=-1;i<=1;i++){
+    const sm=new THREE.Mesh(new THREE.BoxGeometry(0.15,0.32,3.6),M.rampStripe);
+    sm.position.set(i*0.8,0,0);grp.add(sm);
+  }
+  return grp;
+}
+
+function makePoolObj(type){
+  let obj;
+  if(type==='ramp'){obj=makeRampMesh()}
+  else if(type==='health'){
+    obj=new THREE.Mesh(heartGeo,M.health);
+    obj.scale.set(1,1,1);
+  } else {
+    let geo,mat;
+    if(type==='obs'){geo=G.obs;mat=M.obs}
+    if(type==='slow'){geo=G.slow;mat=M.slow}
+    obj=new THREE.Mesh(geo,mat);
+  }
+  obj.visible=false;obj.userData.type=type;
+  scene.add(obj);return obj;
+}
+
+for(let i=0;i<100;i++)pools.obs.push(makePoolObj('obs'));
+for(let i=0;i<25;i++)pools.ramp.push(makePoolObj('ramp'));
+for(let i=0;i<15;i++)pools.health.push(makePoolObj('health'));
+for(let i=0;i<15;i++)pools.slow.push(makePoolObj('slow'));
+
+function poolGet(type){
+  const p=pools[type];
+  for(let i=0;i<p.length;i++)if(!p[i].visible)return p[i];
+  const n=makePoolObj(type);p.push(n);return n;
+}
+function clearAll(){
+  for(const t of ['obs','ramp','health','slow']){
+    for(const o of active[t])o.visible=false;
+    active[t].length=0;
+  }
+}
+
+// ── MAP GENERATION ──
+let genZ=0;
+let chunkCounter=0;
+
+// Spacing between obstacle rows scales with speed
+function getRowGap(){
+  const speedRatio=S.speed/CFG.baseSpeed;
+  return 4.5 + speedRatio * 2.5; // faster → more space between rows
+}
+
+function generateChunk(){
+  const z0=genZ;
+  const gap=getRowGap();
+  const chunkL=CFG.chunkLen+(S.speed-CFG.baseSpeed)*0.3;
+  genZ-=chunkL;
+  if(S.inTrans)return;
+
+  chunkCounter++;
+  // Empty space at the start — first 4 chunks have no obstacles
+  if(chunkCounter<=4)return;
+
+  const halfLanes=Math.floor(CFG.lanes/2);
+  const isDense=Math.random()<0.25+S.level*0.02;
+  const numRows=isDense?Math.min(2+Math.floor(S.level*0.3),5):Math.max(1,Math.floor(Math.random()*2)+1);
+  const obsPerRow=Math.min(CFG.maxObsPerChunk+Math.floor(S.level*0.15),3);
+
+  // Track all occupied cells: Set of "lane:rowIndex"
+  const occupied=new Set();
+
+  // 1) Place obstacle rows
+  for(let row=0;row<numRows;row++){
+    const rowZ=z0-row*gap;
+    const usedLanes=new Set();
+    for(let i=0;i<obsPerRow;i++){
+      const lane=Math.floor(Math.random()*CFG.lanes)-halfLanes;
+      if(usedLanes.has(lane))continue;
+      usedLanes.add(lane);
+      occupied.add(lane+':'+row);
+      const obj=poolGet('obs');
+      obj.userData.baseX=lane*CFG.laneW;
+      obj.position.set(obj.userData.baseX-S.px,1.2,rowZ);
+      obj.material=M.obs;
+      obj.visible=true;
+      active.obs.push(obj);
+    }
+  }
+
+  // 2) Ramp — BEFORE dense cluster, on a FREE lane (rare)
+  if(isDense&&Math.random()<0.2){
+    // Find a lane not occupied by the first obstacle row
+    let rampLane=null;
+    const candidates=[];
+    for(let l=-2;l<=2;l++){if(!occupied.has(l+':0'))candidates.push(l)}
+    if(candidates.length>0){
+      rampLane=candidates[Math.floor(Math.random()*candidates.length)];
+      const r=poolGet('ramp');
+      r.userData.baseX=rampLane*CFG.laneW;
+      // Place ramp one full gap BEFORE first row (higher Z = closer to player)
+      r.position.set(r.userData.baseX-S.px,0.15,z0+gap);
+      r.rotation.set(0.22,0,0);
+      r.visible=true;active.ramp.push(r);
+    }
+  }
+
+  // 3) Standalone ramp in non-dense chunks — rare
+  if(!isDense&&Math.random()<0.03+S.level*0.002){
+    let rampLane=null;
+    const candidates=[];
+    for(let l=-2;l<=2;l++){if(!occupied.has(l+':0'))candidates.push(l)}
+    if(candidates.length>0){
+      rampLane=candidates[Math.floor(Math.random()*candidates.length)];
+      const r=poolGet('ramp');
+      r.userData.baseX=rampLane*CFG.laneW;
+      // Place between rows or before them
+      r.position.set(r.userData.baseX-S.px,0.15,z0+gap*0.6);
+      r.rotation.set(0.22,0,0);
+      r.visible=true;active.ramp.push(r);
+    }
+  }
+
+  // 4) Health pickup (heart)
+  if(Math.random()<CFG.healthChance+Math.max(0,3-S.lives)*0.02){
+    const lane=Math.floor(Math.random()*5)-2;
+    const p=poolGet('health');
+    p.userData.baseX=lane*CFG.laneW;
+    p.position.set(p.userData.baseX-S.px,2.2,z0-Math.random()*chunkL);
+    p.rotation.set(Math.PI,0,0);
+    p.visible=true;active.health.push(p);
+  }
+
+  // 5) Slow pickups only from level 5+
+  if(S.level>=CFG.slowMinLevel&&Math.random()<CFG.slowChance+S.level*0.004){
+    const lane=Math.floor(Math.random()*5)-2;
+    const p=poolGet('slow');
+    p.userData.baseX=lane*CFG.laneW;
+    p.position.set(p.userData.baseX-S.px,2.5,z0-Math.random()*chunkL);
+    p.visible=true;active.slow.push(p);
+  }
+}
+
+// ── STARS ──
+const starCount=250;
+const starGeo=new THREE.BufferGeometry();
+const starPos=new Float32Array(starCount*3);
+for(let i=0;i<starCount;i++){
+  starPos[i*3]=(Math.random()-0.5)*80;
+  starPos[i*3+1]=Math.random()*25+3;
+  starPos[i*3+2]=Math.random()*260-220;
+}
+starGeo.setAttribute('position',new THREE.BufferAttribute(starPos,3));
+const starMat=new THREE.PointsMaterial({color:0x6688cc,size:0.15,transparent:true,opacity:0.6});
+scene.add(new THREE.Points(starGeo,starMat));
+
+// ── AUDIO ──
+let actx=null,mGain=null,vol=0.4;
+function initAudio(){
+  if(actx)return;
+  actx=new(window.AudioContext||window.webkitAudioContext)();
+  mGain=actx.createGain();mGain.gain.value=vol;mGain.connect(actx.destination);
+}
+function beep(freq,dur,type,v){
+  if(!actx)return;
+  const o=actx.createOscillator(),g=actx.createGain();
+  o.type=type||'square';o.frequency.value=freq;
+  g.gain.value=(v||0.3)*vol;
+  g.gain.exponentialRampToValueAtTime(0.001,actx.currentTime+dur);
+  o.connect(g);g.connect(mGain);o.start();o.stop(actx.currentTime+dur);
+}
+function sndHit(){beep(150,.3,'sawtooth',.4)}
+function sndPickup(){beep(800,.12,'sine',.3);beep(1200,.12,'sine',.2)}
+function sndLevel(){beep(440,.2,'sine',.3);setTimeout(()=>beep(660,.2,'sine',.3),150);setTimeout(()=>beep(880,.3,'sine',.3),300)}
+function sndGameOver(){beep(300,.3,'sawtooth',.4);setTimeout(()=>beep(200,.5,'sawtooth',.4),200)}
+function sndRamp(){beep(500,.15,'sine',.3);beep(700,.1,'sine',.2)}
+function sndCountdown(){beep(600,.1,'sine',.2)}
+
+// ── INPUT ──
+const keys={};
+let inpL=false,inpR=false;
+addEventListener('keydown',e=>{
+  keys[e.code]=true;
+  if(e.repeat)return;
+  if(e.code==='KeyP'&&S.running){e.preventDefault();togglePause()}
+  if(e.code==='KeyM'){e.preventDefault();if(S.running)openSettings();else closeSettings()}
+  if(e.code==='Space'){
+    e.preventDefault();
+    if(S.gameOver){restartGame();return}
+    if(!S.running){startGame();return}
+  }
+});
+addEventListener('keyup',e=>{keys[e.code]=false});
+
+const $=id=>document.getElementById(id);
+
+// Touch zones — tap left/right half of screen
+function bindZone(id,onDown,onUp){
+  const el=$(id);
+  if(!el)return;
+  el.addEventListener('touchstart',e=>{e.preventDefault();onDown()},{passive:false});
+  el.addEventListener('touchend',()=>onUp());
+  el.addEventListener('touchcancel',()=>onUp());
+}
+bindZone('zoneLeft',()=>{inpL=true},()=>{inpL=false});
+bindZone('zoneRight',()=>{inpR=true},()=>{inpR=false});
+
+// ── UI ──
+let hudTimer=0;
+
+function heartSVG(full){
+  return HEART_SVG.replace('CLS',full?'heart-full':'heart-empty');
+}
+
+function updateHUD(){
+  hudTimer++;
+  if(hudTimer%3!==0)return;
+  // Dynamic hearts — show all lives (no cap)
+  let h='';
+  for(let i=0;i<S.lives;i++) h+=heartSVG(true);
+  if(S.lives<=0) h+=heartSVG(false);
+  $('livesDisplay').innerHTML=h;
+  $('scoreDisplay').textContent=Math.floor(S.score);
+  $('bestDisplay').textContent='Рекорд: '+S.best;
+  $('levelDisplay').textContent='Уровень '+S.level;
+  const spd=(S.speed/CFG.baseSpeed).toFixed(1);
+  let extra='';
+  if(S.boosting)extra=' 🔥';
+  else if(S.slowT>0)extra=' 🐌';
+  $('speedDisplay').textContent='Скорость: '+spd+'x'+extra;
+}
+function dmgFlash(){
+  const d=document.createElement('div');d.className='damage-flash';
+  $('effects').appendChild(d);setTimeout(()=>d.remove(),450);
+}
+function showSlow(){if(!document.querySelector('.slow-effect')){const e=document.createElement('div');e.className='slow-effect';$('effects').appendChild(e)}}
+function hideSlow(){const e=document.querySelector('.slow-effect');if(e)e.remove()}
+
+
+// ── PLANE SCALE SETTING ──
+function updatePlaneScale(){
+  const v=parseInt($('planeScaleRange').value);
+  $('planeScaleValue').textContent=v+'%';
+  CFG.planeScale=v/100;
+  planeInner.scale.setScalar(CFG.planeScale);
+}
+
+// ── GAME FLOW ──
+let lastT=0,animId=0;
+
+function startGame(){
+  initAudio();
+  $('startOverlay').classList.add('hidden');
+  $('hud').classList.remove('hidden');
+  resetGame();
+  S.running=true;
+  lastT=performance.now();
+  animId=requestAnimationFrame(loop);
+}
+function restartGame(){
+  $('gameOverOverlay').classList.add('hidden');
+  $('pauseOverlay').classList.add('hidden');
+  $('settingsOverlay').classList.add('hidden');
+  $('hud').classList.remove('hidden');
+  resetGame();
+  S.running=true;S.paused=false;
+  lastT=performance.now();
+  animId=requestAnimationFrame(loop);
+}
+function resetGame(){
+  cancelAnimationFrame(animId);
+  clearAll();hideSlow();
+  S.score=0;S.lives=3;S.level=1;
+  S.dist=0;S.lvlTime=0;
+  S.inTrans=false;S.transT=0;
+  S.speed=CFG.baseSpeed;
+  S.slowT=0;S.invT=0;S.boosting=false;
+  S.px=0;S.py=CFG.planeBaseY;S.tilt=0;S.vy=0;S.jumping=false;
+  S.worldZ=0;S.gameOver=false;S.paused=false;
+
+  // Update obstacle color for level 1
+  M.obs.color.setHex(getLevelColor(1));
+
+  for(let i=0;i<3;i++)grounds[i].position.z=-CFG.groundSegLen*i+CFG.groundSegLen*0.5;
+  let li=0;
+  for(let s=0;s<3;s++)for(let l=-3;l<=3;l++){
+    lineSegs[li].position.z=-CFG.groundSegLen*s+CFG.groundSegLen*0.5;li++;
+  }
+  for(let i=0;i<starCount;i++){
+    starPos[i*3]=(Math.random()-0.5)*80;
+    starPos[i*3+1]=Math.random()*25+3;
+    starPos[i*3+2]=Math.random()*260-220;
+  }
+  starGeo.attributes.position.needsUpdate=true;
+  genZ=-20;chunkCounter=0;
+  for(let i=0;i<10;i++)generateChunk();
+  applyMapShift();updateGroundMats();
+}
+function gameOver(){
+  S.gameOver=true;S.running=false;
+  sndGameOver();hideSlow();
+  if(S.score>S.best){S.best=Math.floor(S.score);localStorage.setItem('sr_best',S.best)}
+  $('finalScore').textContent='Счёт: '+Math.floor(S.score)+' | Уровень: '+S.level;
+  $('gameOverOverlay').classList.remove('hidden');
+  $('hud').classList.add('hidden');
+}
+function togglePause(){
+  if(S.gameOver)return;
+  S.paused=!S.paused;
+  $('pauseOverlay').classList.toggle('hidden',!S.paused);
+  if(!S.paused){lastT=performance.now();animId=requestAnimationFrame(loop)}
+}
+function openSettings(){
+  if(S.running&&!S.paused){S.paused=true;$('pauseOverlay').classList.remove('hidden')}
+  $('settingsOverlay').classList.remove('hidden');
+}
+function closeSettings(){$('settingsOverlay').classList.add('hidden')}
+
+let lightTheme=false;
+function toggleTheme(){
+  lightTheme=$('themeToggle').checked;
+  const bg=lightTheme?0xdde4ed:0x000000;
+  scene.background.set(bg);scene.fog.color.set(bg);
+  document.body.classList.toggle('theme-light',lightTheme);
+  starMat.color.set(lightTheme?0x8899aa:0x6688cc);
+  M.outline.color.set(lightTheme?0x333333:0x111111);
+  updateGroundMats();
+}
+function updateGroundMats(){
+  const gm=lightTheme?M.groundLight:M.ground;
+  const lm=lightTheme?M.lineLight:M.line;
+  for(const g of grounds)g.material=gm;
+  for(const l of lineSegs)l.material=lm;
+}
+function updateFog(){
+  const v=parseInt($('fogRange').value);
+  $('fogValue').textContent=v;
+  CFG.fogFar=v;CFG.fogNear=v*0.25;
+  scene.fog.near=CFG.fogNear;scene.fog.far=CFG.fogFar;
+}
+function toggleSound(){
+  const on=$('soundToggle').checked;
+  vol=on?0.4:0;
+  if(mGain)mGain.gain.value=vol;
+}
+function updateStartSpeed(){
+  const v=parseInt($('startSpeedRange').value);
+  $('startSpeedValue').textContent=v;
+  CFG.baseSpeed=v;
+}
+function updateLevelTime(){
+  const v=parseInt($('levelTimeRange').value);
+  $('levelTimeValue').textContent=v+'с';
+  CFG.levelTime=v;
+}
+
+// ── COLLISION ──
+const _ps={x:0.5,y:0.3,z:0.6};
+
+function hitTest(obj,hx,hy,hz){
+  const ox=(obj.userData.baseX||0)-S.px;
+  const pp=planeGrp.position;
+  if(Math.abs(ox)>_ps.x+hx)return false;
+  if(Math.abs(pp.y-obj.position.y)>_ps.y+hy)return false;
+  if(Math.abs(pp.z-obj.position.z)>_ps.z+hz)return false;
+  return true;
+}
+
+// ── LEVEL TRANSITION ──
+function startTransition(){
+  S.inTrans=true;S.transT=0;
+  S.level++;
+  S.speed=CFG.baseSpeed+(S.level-1)*CFG.speedInc;
+  M.obs.color.setHex(getLevelColor(S.level));
+  sndLevel();
+}
+function updateTransition(dt){
+  S.transT+=dt;
+  // Short empty gap, no overlay text
+  if(S.transT>=2.5){S.inTrans=false;S.lvlTime=0}
+}
+
+// ── SCROLL ──
+function scrollArr(type,moved){
+  const a=active[type];
+  for(let i=a.length-1;i>=0;i--){
+    a[i].position.z+=moved;
+    if(a[i].position.z>30){a[i].visible=false;a[i]=a[a.length-1];a.pop()}
+  }
+}
+function applyMapShift(){
+  const shift=-S.px;
+  groundGrp.position.x=shift;
+  linesGrp.position.x=shift;
+  for(const type of ['obs','ramp','health','slow'])
+    for(const obj of active[type])obj.position.x=(obj.userData.baseX||0)+shift;
+}
+
+// ── MAIN LOOP ──
+function loop(now){
+  if(!S.running||S.paused)return;
+  animId=requestAnimationFrame(loop);
+  const dt=Math.min((now-lastT)/1000,0.05);
+  lastT=now;
+
+  // INPUT
+  const left=keys['ArrowLeft']||keys['KeyA']||inpL;
+  const right=keys['ArrowRight']||keys['KeyD']||inpR;
+  const dir=(left?-1:0)+(right?1:0);
+  const halfW=Math.floor(CFG.lanes/2)*CFG.laneW+CFG.laneW*0.3;
+  S.px+=dir*CFG.moveSpd*dt;
+  if(S.px<-halfW)S.px=-halfW;
+  if(S.px>halfW)S.px=halfW;
+  applyMapShift();
+
+  const ttilt=-dir*CFG.maxTilt;
+  S.tilt+=(ttilt-S.tilt)*8*dt;
+
+  // BOOST — active while Space is held
+  const wantBoost=keys['Space']&&!S.paused&&!S.gameOver;
+  if(wantBoost&&!S.boosting)S.boosting=true;
+  if(!wantBoost&&S.boosting)S.boosting=false;
+
+  let eff=S.speed;
+  if(S.boosting)eff*=CFG.boostMult;
+  if(S.slowT>0){eff*=CFG.slowFactor;S.slowT-=dt;if(S.slowT<=0){S.slowT=0;hideSlow()}}
+
+  // Y PHYSICS
+  if(S.jumping){S.vy+=CFG.gravity*dt;S.py+=S.vy*dt;if(S.py<=CFG.planeBaseY){S.py=CFG.planeBaseY;S.vy=0;S.jumping=false}}
+  if(S.invT>0)S.invT-=dt;
+
+  // WORLD SCROLL
+  const moved=eff*dt;
+  S.dist+=moved;S.worldZ+=moved;
+  if(!S.inTrans){
+    S.score+=dt*(S.speed/CFG.baseSpeed);
+    S.lvlTime+=dt;
+  }
+
+  // LEVEL CHECK (time-based: 40 seconds per level)
+  if(S.lvlTime>=CFG.levelTime&&!S.inTrans)startTransition();
+  if(S.inTrans)updateTransition(dt);
+
+  scrollArr('obs',moved);scrollArr('ramp',moved);scrollArr('health',moved);scrollArr('slow',moved);
+
+  for(const p of active.health){p.rotation.y+=dt*2.5}
+  for(const p of active.slow){p.rotation.y+=dt*4;p.rotation.z+=dt*2}
+
+  for(const g of grounds){g.position.z+=moved;if(g.position.z>CFG.groundSegLen*1.5)g.position.z-=CFG.groundSegLen*3}
+  for(const l of lineSegs){l.position.z+=moved;if(l.position.z>CFG.groundSegLen*1.5)l.position.z-=CFG.groundSegLen*3}
+
+  const sp=starGeo.attributes.position.array;
+  for(let i=0;i<starCount;i++){sp[i*3+2]+=moved*0.3;if(sp[i*3+2]>30){sp[i*3+2]-=260;sp[i*3]=(Math.random()-0.5)*80}}
+  starGeo.attributes.position.needsUpdate=true;
+
+  const screenFar=-(CFG.fogFar+60);
+  while(genZ+S.worldZ>screenFar)generateChunk();
+
+  // COLLISIONS — Obstacles
+  if(S.invT<=0){
+    for(let i=active.obs.length-1;i>=0;i--){
+      const o=active.obs[i];if(!o.visible)continue;
+      if(hitTest(o,1.1,1.1,1.1)){
+        if(S.py<4.2){
+          S.lives--;S.invT=CFG.invincTime;sndHit();dmgFlash();
+          o.visible=false;active.obs[i]=active.obs[active.obs.length-1];active.obs.pop();
+          if(S.lives<=0){gameOver();return}
+        }
+      }
+    }
+  }
+
+  // Ramps
+  if(!S.jumping){
+    for(const r of active.ramp){
+      if(!r.visible)continue;
+      const ox=(r.userData.baseX||0)-S.px;
+      const dz=Math.abs(planeGrp.position.z-r.position.z);
+      if(Math.abs(ox)<2.0&&dz<2.8){S.jumping=true;S.vy=CFG.jumpVel;sndRamp();break}
+    }
+  }
+
+  // Health
+  for(let i=active.health.length-1;i>=0;i--){
+    const p=active.health[i];if(!p.visible)continue;
+    if(hitTest(p,0.8,1.0,0.8)){
+      S.lives++;sndPickup();
+      p.visible=false;active.health[i]=active.health[active.health.length-1];active.health.pop();
+    }
+  }
+
+  // Slow
+  for(let i=active.slow.length-1;i>=0;i--){
+    const p=active.slow[i];if(!p.visible)continue;
+    if(hitTest(p,0.8,1.0,0.8)){
+      S.slowT=CFG.slowDuration;showSlow();sndPickup();
+      p.visible=false;active.slow[i]=active.slow[active.slow.length-1];active.slow.pop();
+    }
+  }
+
+  // UPDATE PLANE
+  planeGrp.position.x=0;
+  planeGrp.position.y=S.py+Math.sin(now*0.004)*0.1;
+  planeGrp.rotation.z=S.tilt;
+  planeGrp.rotation.x=S.jumping?Math.max(-0.3,Math.min(0.3,S.vy*0.022)):0;
+  planeGrp.visible=S.invT>0?Math.sin(now*0.025)>0:true;
+
+  // Fog expands when jumping (aerial view), returns when landing
+  const jumpRatio=Math.max(0,(S.py-CFG.planeBaseY)/4); // 0..~1
+  const fogBonus=jumpRatio*60;
+  scene.fog.far=CFG.fogFar+fogBonus;
+  scene.fog.near=CFG.fogNear+fogBonus*0.3;
+
+  camera.position.x+=(0-camera.position.x)*5*dt;
+  camera.position.y=11+(S.py-CFG.planeBaseY)*0.4;
+
+  updateHUD();
+  renderer.render(scene,camera);
+}
+
+addEventListener('resize',()=>{
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+
+$('bestDisplay').textContent='Рекорд: '+S.best;
+updateFog();updatePlaneScale();
+renderer.render(scene,camera);
+</script>
+</body>
+</html>
