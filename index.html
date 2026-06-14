@@ -146,23 +146,23 @@ canvas{display:block}
     </div>
     <div class="setting-row">
       <span>Дальность видимости</span>
-      <input type="range" id="fogRange" min="40" max="160" value="80" oninput="updateFog()">
-      <span id="fogValue" style="min-width:30px;text-align:right">80</span>
+      <input type="range" id="fogRange" min="40" max="160" value="160" oninput="updateFog()">
+      <span id="fogValue" style="min-width:30px;text-align:right">160</span>
     </div>
     <div class="setting-row">
       <span>Начальная скорость</span>
-      <input type="range" id="startSpeedRange" min="15" max="60" value="28" oninput="updateStartSpeed()">
-      <span id="startSpeedValue" style="min-width:30px;text-align:right">28</span>
+      <input type="range" id="startSpeedRange" min="15" max="160" value="70" oninput="updateStartSpeed()">
+      <span id="startSpeedValue" style="min-width:30px;text-align:right">70</span>
     </div>
     <div class="setting-row">
       <span>Размер самолётика</span>
-      <input type="range" id="planeScaleRange" min="30" max="150" value="83" oninput="updatePlaneScale()">
-      <span id="planeScaleValue" style="min-width:38px;text-align:right">83%</span>
+      <input type="range" id="planeScaleRange" min="30" max="150" value="50" oninput="updatePlaneScale()">
+      <span id="planeScaleValue" style="min-width:38px;text-align:right">50%</span>
     </div>
     <div class="setting-row">
       <span>Длина уровня (сек)</span>
-      <input type="range" id="levelTimeRange" min="15" max="120" value="40" oninput="updateLevelTime()">
-      <span id="levelTimeValue" style="min-width:38px;text-align:right">40с</span>
+      <input type="range" id="levelTimeRange" min="15" max="120" value="60" oninput="updateLevelTime()">
+      <span id="levelTimeValue" style="min-width:38px;text-align:right">60с</span>
     </div>
     <button class="overlay-btn" onclick="closeSettings()" style="width:100%;margin-top:10px">✓ Закрыть</button>
   </div>
@@ -179,14 +179,14 @@ canvas{display:block}
 const HEART_SVG = '<svg class="heart" viewBox="0 0 24 24"><path class="CLS" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>';
 
 const CFG = {
-  lanes:7, laneW:3.2, baseSpeed:28, speedInc:5,
-  boostMult:1.7,
+  lanes:17, laneW:3.2, baseSpeed:100, speedInc:5,
+  boostMult:2,
   levelTime:40, // seconds per level
   chunkLen:18, maxObsPerChunk:2, // obstacles per ROW (kept low, more rows instead)
-  fogNear:20, fogFar:80,
+  fogNear:60, fogFar:80,
   groundW:100, groundSegLen:200,
-  healthChance:0.05,
-  slowChance:0.03, slowDuration:5, slowFactor:0.9, slowMinLevel:5,
+  healthChance:0.1,
+  slowChance:0.03, slowDuration:5, slowFactor:0.5, slowMinLevel:5,
   jumpVel:14, gravity:-20,
   moveSpd:20, maxTilt:0.5, invincTime:1.8,
   planeZ:3, planeBaseY:2, planeScale:0.83,
